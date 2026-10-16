@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tap</title>
+<!--
+  Generic tap-to-text page (GitHub Pages: christianschoder/tap). Holds NO data.
+  Everything comes in the link's #fragment, which browsers never send to the server:
+    #n=<name>&p=<+1XXXXXXXXXX>&t=<text 1>&t=<text 2>...   (each value URI-encoded)
+  Each bubble is an sms: link that opens Google Messages with that text typed in.
+  Source of truth: Z:\other\promo_assist\templates\tap-page\index.html
+-->
+<style>
+:root { --bg: #f6f7f9; --fg: #15181d; --muted: #667080; --bubble: #dfe8fb; --bubble-fg: #0f2a5c; --done: #e6e8ec; --done-fg: #8a92a0; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121417; --fg: #e8eaee; --muted: #9aa3b1; --bubble: #26324a; --bubble-fg: #dce6fb; --done: #1d2026; --done-fg: #6b7380; color-scheme: dark; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.45 Roboto, system-ui, sans-serif; padding: 24px 16px 48px; }
+main { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+h1 { font-size: 1.3rem; margin: 0 0 4px; }
+p { margin: 0; color: var(--muted); font-size: .9rem; }
+a.b { display: block; padding: 14px 18px; border-radius: 22px; background: var(--bubble); color: var(--bubble-fg); text-decoration: none; }
+a.b.done { background: var(--done); color: var(--done-fg); }
+a.alt { font-size: .8rem; color: var(--muted); align-self: flex-end; }
+</style>
+</head>
+<body>
+<main id="m"><p>Nothing to show: this page needs a link with the texts in it.</p></main>
+<script>
+(function () {
+  var h = location.hash.replace(/^#/, ''); if (!h) return;
+  var name = '', phone = '', texts = [];
+  h.split('&').forEach(function (kv) {
+    var i = kv.indexOf('='); if (i < 0) return;
+    var k = kv.slice(0, i), v = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, '%20'));
+    if (k === 'n') name = v; else if (k === 'p') phone = v; else if (k === 't') texts.push(v);
+  });
+  if (!/^\+1\d{10}$/.test(phone) || !texts.length) return;
+  var m = document.getElementById('m'); m.innerHTML = '';
+  var h1 = document.createElement('h1'); h1.textContent = name || phone; m.appendChild(h1);
+  var p = document.createElement('p'); p.textContent = 'Tap a text, send it in Messages, come back for the next one.'; m.appendChild(p);
+  var key = 'tap:' + h;
+  var done = {}; try { done = JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) {}
+  texts.forEach(function (t, i) {
+    var a = document.createElement('a'); a.className = 'b' + (done[i] ? ' done' : '');
+    a.href = 'sms:' + phone + '?body=' + encodeURIComponent(t); a.textContent = t;
+    a.addEventListener('click', function () { a.className = 'b done'; done[i] = 1; try { localStorage.setItem(key, JSON.stringify(done)); } catch (e) {} });
+    m.appendChild(a);
+    var alt = document.createElement('a'); alt.className = 'alt';
+    alt.href = 'intent://send/' + phone + '#Intent;scheme=smsto;package=com.google.android.apps.messaging;S.sms_body=' + encodeURIComponent(t) + ';end';
+    alt.textContent = 'other way'; m.appendChild(alt);
+  });
+})();
+</script>
+</body>
+</html>
