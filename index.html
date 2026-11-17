@@ -11,6 +11,9 @@
     #d=<batch title>&n=<name>&h=<hint>&p=<+1XXXXXXXXXX>&t=<text 1>&t=<text 2>&n=<next name>...
   (each value URI-encoded, the number's + as %2B; every n starts a new person; d and h optional).
   Each bubble is an sms: link that opens Google Messages with that text typed in.
+  Ratings (optional): b=<yyyy-MM-dd>&f=<form responder id>&e=<entry batch>.<entry pos>.<entry vote>
+  and k=<position> per person -> a thumbs up / thumbs down per person, sent to that Google Form as
+  batch + position + vote only (never names, numbers or texts). Tapping the lit thumb again takes it back.
   Source of truth: Z:\other\promo_assist\templates\tap-page\index.html
 -->
 <style>
@@ -25,6 +28,10 @@ p { margin: 0; color: var(--muted); font-size: .9rem; }
 a.b { display: block; padding: 14px 18px; border-radius: 22px; background: var(--bubble); color: var(--bubble-fg); text-decoration: none; }
 a.b.done { background: var(--done); color: var(--done-fg); }
 a.alt { font-size: .8rem; color: var(--muted); align-self: flex-end; }
+.rate { display: flex; gap: 10px; align-items: center; }
+.rate button { font-size: 1.25rem; line-height: 1; padding: 8px 16px; border-radius: 18px; border: 1px solid var(--done); background: transparent; color: var(--fg); filter: grayscale(1); opacity: .55; cursor: pointer; }
+.rate button.on { filter: none; opacity: 1; background: var(--bubble); border-color: var(--bubble); }
+.rate span { font-size: .8rem; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -32,16 +39,17 @@ a.alt { font-size: .8rem; color: var(--muted); align-self: flex-end; }
 <script>
 (function () {
   var h = location.hash.replace(/^#/, ''); if (!h) return;
-  var title = '', people = [], cur = null;
+  var title = '', people = [], cur = null, rb = '', rf = '', re = [];
   h.split('&').forEach(function (kv) {
     var i = kv.indexOf('='); if (i < 0) return;
     var k = kv.slice(0, i), v;
     try { v = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, '%20')); } catch (e) { return; }
     if (k === 'd') title = v;
-    else if (k === 'n') { cur = { name: v, hint: '', phone: '', texts: [] }; people.push(cur); }
+    else if (k === 'b') rb = v; else if (k === 'f') rf = v; else if (k === 'e') re = v.split('.');
+    else if (k === 'n') { cur = { name: v, hint: '', phone: '', texts: [], pos: '' }; people.push(cur); }
     else {
-      if (!cur) { cur = { name: '', hint: '', phone: '', texts: [] }; people.push(cur); }
-      if (k === 'p') cur.phone = v; else if (k === 'h') cur.hint = v; else if (k === 't') cur.texts.push(v);
+      if (!cur) { cur = { name: '', hint: '', phone: '', texts: [], pos: '' }; people.push(cur); }
+      if (k === 'p') cur.phone = v; else if (k === 'h') cur.hint = v; else if (k === 't') cur.texts.push(v); else if (k === 'k') cur.pos = v;
     }
   });
   people = people.filter(function (x) { return /^\+1\d{10}$/.test(x.phone) && x.texts.length; });
@@ -50,11 +58,33 @@ a.alt { font-size: .8rem; color: var(--muted); align-self: flex-end; }
   var h1 = document.createElement('h1'); h1.textContent = title || (people.length === 1 ? (people[0].name || people[0].phone) : 'Texts'); m.appendChild(h1);
   var p = document.createElement('p'); p.textContent = 'Tap a text, send it in Messages, come back for the next one.'; m.appendChild(p);
   var key = 'tap:' + h;
+  // thumbs: one vote per person, sent to the Google Form in the background (no-cors: the answer is
+  // opaque, so "saved" means the request left the phone; a network error shows "not sent")
+  function rateRow(pos) {
+    var rk = 'rate:' + rb + ':' + pos, vote = '';
+    try { vote = localStorage.getItem(rk) || ''; } catch (e) {}
+    var row = document.createElement('div'); row.className = 'rate';
+    var up = document.createElement('button'), dn = document.createElement('button'), st = document.createElement('span');
+    up.textContent = '👍'; dn.textContent = '👎'; up.setAttribute('aria-label', 'good suggestion'); dn.setAttribute('aria-label', 'bad suggestion');
+    var show = function () { up.className = vote === 'up' ? 'on' : ''; dn.className = vote === 'down' ? 'on' : ''; };
+    var send = function (v) {
+      vote = (vote === v) ? '' : v; show();
+      try { localStorage.setItem(rk, vote); } catch (e) {}
+      var body = new URLSearchParams();
+      body.append('entry.' + re[0], rb); body.append('entry.' + re[1], pos); body.append('entry.' + re[2], vote || 'none');
+      st.textContent = 'sending...';
+      fetch('https://docs.google.com/forms/d/e/' + encodeURIComponent(rf) + '/formResponse', { method: 'POST', mode: 'no-cors', body: body })
+        .then(function () { st.textContent = vote ? 'saved' : 'cleared'; }, function () { st.textContent = 'not sent, tap again'; });
+    };
+    up.addEventListener('click', function () { send('up'); }); dn.addEventListener('click', function () { send('down'); });
+    show(); row.appendChild(up); row.appendChild(dn); row.appendChild(st); m.appendChild(row);
+  }
   var done = {}; try { done = JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) {}
   people.forEach(function (x, pi) {
     var h2 = null;
     if (people.length > 1 || title) { h2 = document.createElement('h2'); h2.textContent = x.name || x.phone; m.appendChild(h2); }
     if (x.hint) { var hp = document.createElement('p'); hp.textContent = x.hint; m.appendChild(hp); }
+    if (rb && rf && re.length === 3 && x.pos) rateRow(x.pos);
     var mark = function () { if (h2) h2.className = x.texts.every(function (_, ti) { return done[pi + '.' + ti]; }) ? 'done' : ''; };
     x.texts.forEach(function (t, ti) {
       var id = pi + '.' + ti;
